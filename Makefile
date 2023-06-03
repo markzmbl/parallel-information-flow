@@ -1,2 +1,2 @@
 all:
-	g++ -O2 -lpthread -std=c++20 -o main main.cpp
+	g++ -O2 -lpthread -std=c++2a -o main main.cpp

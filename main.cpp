@@ -14,25 +14,20 @@ int main() {
     size_t readBytes = fread(adjacencyMatrix, sizeof(uint8_t), n*n, file);
     fclose(file);
 
-    SafeQueue<uint16_t> queue;
+    SafeQueue<uint16_t> queue(n, 1);
 
     float alpha = 0.01f;
-    // uint16_t m = 10'000;
-    uint16_t m = 10;
+    uint16_t m = 10'000;
+    // uint16_t m = 10;
 
     for (uint16_t seedNodeId=0; seedNodeId<n; ++seedNodeId) {
         // printf("nodeId:\t%u\n", seedNodeId);
         for (uint16_t simulationId=0; simulationId<m; ++simulationId) {
             printf("nodeId:\t%u\tsimulationId:\t%u\n", seedNodeId, simulationId);
 
-            /*
-            states:
-            0: ready to recieve
-            1: ready to transmit/dormant
-            */
-            uint8_t states[n] = {0};
+            uint8_t activations[n] = {0};
             std::mutex stateMutexes[n];
-            states[seedNodeId] = 1;
+            // states[seedNodeId] = 1;
             queue.enqueue(seedNodeId);
 
             while (!queue.empty()) {
@@ -44,24 +39,30 @@ int main() {
                     // check if coin flip shall affect
                     if (adjacencyMatrix[activeNodeId*n+nodeId] == 1 &&
                             (float)std::rand()/RAND_MAX <= alpha) {
+                        
+                        // True successfully enqueued
+                        // node already has been activated
+                        
+                        bool enqueued = queue.enqueue(nodeId);
+
+
                         // lock operation on node state
                         stateMutexes[nodeId].lock();
                         // check if node is ready to recieve
-                        if (states[nodeId] == 0) {
-                            // node has successfully been infected
-                            states[nodeId] = 1;
-                            // and is appended to work queue
-                            queue.enqueue(nodeId);
-                        }
+                        // if (states[nodeId] == 0) {
+                        //     // node has successfully been infected
+                        //     states[nodeId] = 1;
+                        //     // and is appended to work queue
+                        // }
                         stateMutexes[nodeId].unlock();
                     }
                 }
                 // states[activeNodeId] = 2;
             }
             // accumulate activated nodes
-            for (uint16_t nodeId=0; nodeId<n; ++nodeId) {
-                counts[seedNodeId*n+nodeId] += states[nodeId];
-            }
+            // for (uint16_t nodeId=0; nodeId<n; ++nodeId) {
+            //     counts[seedNodeId*n+nodeId] += states[nodeId];
+            // }
         }
         // // simulation finished
         // for (uint16_t nodeId=0; nodeId<n; ++nodeId) {
