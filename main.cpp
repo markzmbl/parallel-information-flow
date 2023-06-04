@@ -13,7 +13,8 @@ void worker(
     std::vector<uint8_t>& adjacencyMatrix,
     uint16_t n,
     float alpha,
-    SafeQueue<uint16_t>& queue
+    SafeQueue<uint16_t>& queue,
+    std::default_random_engine& rng
 ) {
     std::shared_ptr<uint16_t> activeNodeIdPtr;
 
@@ -25,7 +26,6 @@ void worker(
 
         // check if simulation is finished
         if (activeNodeIdPtr == nullptr) {
-            std::cout <<"???"<<activeNodeIdPtr<<"!!!"<<std::flush;
             break;
         }
 
@@ -36,7 +36,7 @@ void worker(
             // check if edge exists from active node to other node
             // check if coin flip infects
             if (adjacencyMatrix[activeNodeId * n + nodeId] == 1 &&
-                    (float)std::rand() / RAND_MAX <= alpha
+                std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) <= alpha
             ) {
 
                 // True successfully enqueued
@@ -47,8 +47,7 @@ void worker(
     }
 }
 
-int main() {
-
+int main(int argc, char* argv[]) {
     // count nodes
     uint16_t n = 1'718;
     // network adjacency matrix
@@ -58,10 +57,17 @@ int main() {
     // probabilty to infect a node
     float alpha = 0.01f;
     // amount of simulations
-    // uint16_t m = 10'000;
     uint16_t m = 2;
     // amount of threads
     uint8_t threadCount = 2;
+
+    if (argc >= 3) {
+        m = std::stoi(argv[1]);
+        threadCount = std::stoi(argv[2]);
+    } else {
+        std::cout << "Usage: ./program_name <m> <threadCount>" << std::endl;
+        return 1;
+    }
 
     // Read the binary data
     std::ifstream file("adjacency_matrix.bin", std::ios::binary);
@@ -69,29 +75,44 @@ int main() {
     file.close();
 
     SafeQueue<uint16_t> queue(n, threadCount);
-    std::vector<std::thread> threads(threadCount);
+    std::vector<std::thread> threads;
+
+    // Create a random number generator
+    std::random_device rd;
+    std::default_random_engine rng(rd());
 
     // iterate nodes
     for (uint16_t seedNodeId = 0; seedNodeId < n; ++seedNodeId) {
+        // std::cout << "nodeId:\t" << seedNodeId << std::endl;
+
         // iterate simulations
         for (uint16_t simulationId = 0; simulationId < m; ++simulationId) {
-            std::cout << "nodeId:\t" << seedNodeId << "\tsimulationId:\t" << simulationId << std::endl;
+            // std::cout << "nodeId:\t" << seedNodeId << "\tsimulationId:\t" << simulationId << std::endl;
 
             // enqueue seed node
             queue.enqueue(seedNodeId);
 
+            auto start = std::chrono::high_resolution_clock::now();
             // // parallelized
-            for (uint8_t i=0; i<threadCount; ++i) {
+            for (uint8_t i = 0; i < threadCount; ++i) {
                 threads.emplace_back(
-                    worker, std::ref(adjacencyMatrix), n, alpha, std::ref(queue)
+                    worker, std::ref(adjacencyMatrix), n, alpha, std::ref(queue), std::ref(rng)
                 );
             }
             for (auto& thread : threads) {
                 thread.join();
             }
+            auto end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> duration = end - start;
+
+            std::cout
+                << (size_t) threadCount << ","
+                << (size_t) seedNodeId << ","
+                << (size_t) simulationId << ","
+                << duration.count() << std::endl;
 
             // accumulate activated nodes
-            // #pragma omp parallel for simd
+            #pragma omp parallel for simd
             for (uint16_t nodeId = 0; nodeId < n; ++nodeId) {
                 bool activated = queue.isActivated(nodeId);
                 iar[seedNodeId * n + nodeId] += static_cast<float>(activated);
@@ -104,23 +125,23 @@ int main() {
     // experiment finished
 
     // normalize information access representation
-    std::cout << "normalizing..." << std::flush;
-    float factor = 1.0f / m; 
-    // #pragma omp parallel for simd
+    // std::cout << "normalizing..." << std::flush;
+    float factor = 1.0f / m;
+    #pragma omp parallel for simd
     for (uint16_t nodeId = 0; nodeId < n * n; ++nodeId) {
         iar[nodeId] *= factor;
     }
-    std::cout << " finished" << std::endl;
+    // std::cout << " finished" << std::endl;
 
     // write the binary data
     std::stringstream fileOutName;
-    fileOutName << "threads_" << (size_t)threadCount << "_simulations_" << (size_t)m << ".bin";
+    fileOutName << "threads_" << static_cast<size_t>(threadCount) << "_simulations_" << static_cast<size_t>(m) << ".bin";
 
-    std::cout << "writing...";
+    // std::cout << "writing...";
     std::ofstream fileOut(fileOutName.str(), std::ios::binary);
     fileOut.write(reinterpret_cast<const char*>(iar.data()), iar.size() * sizeof(float));
     fileOut.close();
-    std::cout << " finished" << std::endl;
+    // std::cout << " finished" << std::endl;
 
     return 0;
 }

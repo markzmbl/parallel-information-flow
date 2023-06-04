@@ -54,7 +54,7 @@ public:
     {
         bool activated = activate(nodeId);
         if (activated) {
-            std::lock_guard<std::mutex> lock(queueMutex);
+            // std::lock_guard<std::mutex> lock(queueMutex);
             q.push(nodeId);
             c.notify_one();
             return true;
@@ -66,36 +66,40 @@ public:
     // If the queue is empty, wait till an element is available.
     std::shared_ptr<T> dequeue(void)
     {
-        std::unique_lock<std::mutex> lock(queueMutex);
-        // enter waiting while loop
-        // while the queue has no element and
-        // not all threads are waiting and
-        // there still exists one thread possibly producing
-        // queue items
-        while (q.empty() && !finished)
-        {
-            // Increase waiting counter
-            ++threadsWaiting;
+		std::unique_lock<std::mutex> lock(queueMutex);
+		// enter waiting while loop
+		// while the queue has no element and
+		// not all threads are waiting and
+		// there still exists one thread possibly producing
+		// queue items
+		while (q.empty() && !finished)
+		{
+			// Increase waiting counter
+			++threadsWaiting;
 
-            if (threadsWaiting >= threadsCount) {
-                finished = true;
-                c.notify_all();
-                break;
-            }
+			if (threadsWaiting >= threadsCount) {
+				finished = true;
 
-            c.wait(lock);
-            --threadsWaiting;
-        }
+				c.notify_all();
+				break;
+			}
 
-        if (!q.empty()) {
-            std::shared_ptr<T> valPtr = std::make_shared<T>(q.front());
-            q.pop();
-            return valPtr;
-        }
+			// Spurious wake-up safe wait
+			c.wait(lock, [this] { return !q.empty() || finished; });
 
-        std::shared_ptr<T> nullPtr(nullptr);
-        return nullPtr;
-    }
+			--threadsWaiting;
+		}
+
+		if (!q.empty()) {
+			std::shared_ptr<T> valPtr = std::make_shared<T>(q.front());
+			// std::cout << "...bam..." << std::flush;
+			q.pop();
+			return valPtr;
+		}
+
+		std::shared_ptr<T> nullPtr(nullptr);
+		return nullPtr;
+	}
 
     bool empty()
     {
