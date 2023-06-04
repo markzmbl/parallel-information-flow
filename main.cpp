@@ -4,6 +4,7 @@
 #include <random>
 #include <atomic>
 #include <sstream>
+#include <thread>
 #include <omp.h>
 
 #include "SafeQueue.hpp"
@@ -24,6 +25,7 @@ void worker(
 
         // check if simulation is finished
         if (activeNodeIdPtr == nullptr) {
+            std::cout <<"???"<<activeNodeIdPtr<<"!!!"<<std::flush;
             break;
         }
 
@@ -34,7 +36,8 @@ void worker(
             // check if edge exists from active node to other node
             // check if coin flip infects
             if (adjacencyMatrix[activeNodeId * n + nodeId] == 1 &&
-                (float)std::rand() / RAND_MAX <= alpha) {
+                    (float)std::rand() / RAND_MAX <= alpha
+            ) {
 
                 // True successfully enqueued
                 // node already has been activated
@@ -58,7 +61,7 @@ int main() {
     // uint16_t m = 10'000;
     uint16_t m = 2;
     // amount of threads
-    uint8_t threadCount = 1;
+    uint8_t threadCount = 2;
 
     // Read the binary data
     std::ifstream file("adjacency_matrix.bin", std::ios::binary);
@@ -66,6 +69,7 @@ int main() {
     file.close();
 
     SafeQueue<uint16_t> queue(n, threadCount);
+    std::vector<std::thread> threads(threadCount);
 
     // iterate nodes
     for (uint16_t seedNodeId = 0; seedNodeId < n; ++seedNodeId) {
@@ -76,16 +80,25 @@ int main() {
             // enqueue seed node
             queue.enqueue(seedNodeId);
 
-            // parallelized
-            worker(adjacencyMatrix, n, alpha, queue);
+            // // parallelized
+            for (uint8_t i=0; i<threadCount; ++i) {
+                threads.emplace_back(
+                    worker, std::ref(adjacencyMatrix), n, alpha, std::ref(queue)
+                );
+            }
+            for (auto& thread : threads) {
+                thread.join();
+            }
+
             // accumulate activated nodes
-            #pragma omp parallel for simd
+            // #pragma omp parallel for simd
             for (uint16_t nodeId = 0; nodeId < n; ++nodeId) {
                 bool activated = queue.isActivated(nodeId);
                 iar[seedNodeId * n + nodeId] += static_cast<float>(activated);
             }
             // reset queue for next simulation
             queue.reset();
+            threads.clear();
         }
     }
     // experiment finished
@@ -93,7 +106,7 @@ int main() {
     // normalize information access representation
     std::cout << "normalizing..." << std::flush;
     float factor = 1.0f / m; 
-    #pragma omp parallel for simd
+    // #pragma omp parallel for simd
     for (uint16_t nodeId = 0; nodeId < n * n; ++nodeId) {
         iar[nodeId] *= factor;
     }
