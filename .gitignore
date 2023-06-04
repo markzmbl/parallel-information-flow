@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+main
+
+# venv
+.venv
+
+# vscode
+.vscode
+
+# counts
+threads_*_simulations_*.bin
