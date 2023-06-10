@@ -40,3 +40,6 @@ main
 
 # counts
 threads_*_simulations_*.bin
+
+# outputs
+*csv

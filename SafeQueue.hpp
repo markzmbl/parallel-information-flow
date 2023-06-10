@@ -25,10 +25,17 @@ private:
 
     bool activate(T nodeId)
     {
-        std::lock_guard<std::mutex> lock(activationMutexes[nodeId]);
-        if (!activations[nodeId]) {
-            activations[nodeId] = true;
-            return true;
+        if (threadsCount > 1) {
+            std::lock_guard<std::mutex> lock(activationMutexes[nodeId]);
+            if (!activations[nodeId]) {
+                activations[nodeId] = true;
+                return true;
+            }
+        } else {
+            if (!activations[nodeId]) {
+                activations[nodeId] = true;
+                return true;
+            }
         }
         return false;
     }
@@ -54,9 +61,13 @@ public:
     {
         bool activated = activate(nodeId);
         if (activated) {
-            // std::lock_guard<std::mutex> lock(queueMutex);
-            q.push(nodeId);
-            c.notify_one();
+            if (threadsCount > 1) {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                q.push(nodeId);
+                c.notify_one();
+            } else {
+                q.push(nodeId);
+            }
             return true;
         }
         return false;
@@ -66,39 +77,50 @@ public:
     // If the queue is empty, wait till an element is available.
     std::shared_ptr<T> dequeue(void)
     {
-		std::unique_lock<std::mutex> lock(queueMutex);
-		// enter waiting while loop
-		// while the queue has no element and
-		// not all threads are waiting and
-		// there still exists one thread possibly producing
-		// queue items
-		while (q.empty() && !finished)
-		{
-			// Increase waiting counter
-			++threadsWaiting;
+        if (threadsCount > 1) {
+		    std::unique_lock<std::mutex> lock(queueMutex);
+            // enter waiting while loop
+            // while the queue has no element and
+            // not all threads are waiting and
+            // there still exists one thread possibly producing
+            // queue items
+            while (q.empty() && !finished)
+            {
+                // Increase waiting counter
+                
+                ++threadsWaiting;
 
-			if (threadsWaiting >= threadsCount) {
-				finished = true;
+                if (threadsWaiting >= threadsCount) {
+                    finished = true;
+                    c.notify_all();
+                    break;
+                }
 
-				c.notify_all();
-				break;
-			}
+                // Spurious wake-up safe wait
+                c.wait(lock, [this] { return !q.empty() || finished; });
 
-			// Spurious wake-up safe wait
-			c.wait(lock, [this] { return !q.empty() || finished; });
+                --threadsWaiting;
+            }
+            if (!q.empty()) {
+                std::shared_ptr<T> valPtr = std::make_shared<T>(q.front());
+                // std::cout << "...bam..." << std::flush;
+                q.pop();
+                return valPtr;
+            }
 
-			--threadsWaiting;
-		}
+            std::shared_ptr<T> nullPtr(nullptr);
+            return nullPtr;
+        } else {
+            if (!q.empty()) {
+                std::shared_ptr<T> valPtr = std::make_shared<T>(q.front());
+                // std::cout << "...bam..." << std::flush;
+                q.pop();
+                return valPtr;
+            }
 
-		if (!q.empty()) {
-			std::shared_ptr<T> valPtr = std::make_shared<T>(q.front());
-			// std::cout << "...bam..." << std::flush;
-			q.pop();
-			return valPtr;
-		}
-
-		std::shared_ptr<T> nullPtr(nullptr);
-		return nullPtr;
+            std::shared_ptr<T> nullPtr(nullptr);
+            return nullPtr;
+        }
 	}
 
     bool empty()
