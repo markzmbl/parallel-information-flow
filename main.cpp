@@ -9,15 +9,14 @@
 #include <algorithm>
 
 #include "SafeQueue.hpp"
+#include "Graph.hpp"
 
 void worker(
-    std::vector<uint8_t>& adjacencyMatrix,
-    uint16_t n,
-    float alpha,
-    SafeQueue<uint16_t>& queue,
+    Graph<uint32_t>& graph,
+    SafeQueue<uint32_t>& queue,
     std::default_random_engine& rng
 ) {
-    std::shared_ptr<uint16_t> activeNodeIdPtr;
+    std::shared_ptr<uint32_t> activeNodeIdPtr;
 
     // enter simulation loop
     while (true) {
@@ -30,13 +29,16 @@ void worker(
             break;
         }
 
-        uint16_t activeNodeId = *activeNodeIdPtr;
+        uint32_t activeNodeId = *activeNodeIdPtr;
 
-        // iterate its neighbors
-        for (uint16_t nodeId = 0; nodeId < n; ++nodeId) {
+        
+        // iterate its neighbors        
+        for (uint32_t nodeId : graph.getNeighbors(activeNodeId)) {
             // check if edge exists from active node to other node
             // check if coin flip infects
-            if (adjacencyMatrix[activeNodeId * n + nodeId] == 1 &&
+            float alpha = 1.0f / graph.getInDegree(nodeId);
+            if (
+                alpha == 1 ||
                 std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) <= alpha
             ) {
 
@@ -49,24 +51,22 @@ void worker(
 }
 
 void benchmark(
-    std::vector<uint8_t>& adjacencyMatrix,
-    uint16_t n,
-    float alpha,
-    SafeQueue<uint16_t>& queue,
+    Graph<uint32_t>& graph,
+    SafeQueue<uint32_t>& queue,
     std::default_random_engine& rng,
     uint8_t threadsCount
 ) {
     if (threadsCount == 1) {
         worker(
-            adjacencyMatrix,
-            n, alpha, queue, rng
+            graph,
+            queue, rng
         );
     } else {
         std::vector<std::thread> threads;
         // parallelized
         for (uint8_t i = 0; i < threadsCount; ++i) {
             threads.emplace_back(
-                worker, std::ref(adjacencyMatrix), n, alpha, std::ref(queue), std::ref(rng)
+                worker, std::ref(graph), std::ref(queue), std::ref(rng)
             );
         }
 
@@ -78,24 +78,120 @@ void benchmark(
 }
 
 int main(int argc, char* argv[]) {
+
+
+    Graph<uint32_t> graph;
+
+    const std::string dataset = argv[1];
+    // const std::string dataset = "amazon0601";
+    // amount of simulations
+    const uint32_t m = std::stoi(argv[2]);
+    // const uint32_t m = 1000;
+    // amount of threads
+    // const uint8_t threadsCount = std::stoi(argv[3]);
+    // const uint8_t threadsCount = 2;
+
+    std::ifstream file(dataset+"/out."+dataset);
+
+    std::string line;
+    while (std::getline(file, line)) {
+
+        if (line[0] != '%') {
+            std::istringstream iss(line);
+
+            uint32_t src, dest;
+            iss >> src;
+            iss.ignore();
+            iss >> dest;
+
+            graph.addEdge(src, dest);
+        }
+    }
+    file.close();
+
+    uint32_t n = graph.getVertexCount();
+
+    for (uint8_t threadsCount=1; threadsCount<=6; ++threadsCount) {
+
+        // information access representation
+        // std::vector<float> iar(n * n);
+
+
+        SafeQueue<uint32_t> queue(n, threadsCount);
+
+        // Create a random number generator
+        std::random_device rd;
+        std::default_random_engine rng(rd());
+    
+
+
+        // iterate nodes
+        for (uint32_t seedNodeId = 0; seedNodeId < n; ++seedNodeId) {
+            // std::cout << "nodeId:\t" << seedNodeId << std::endl;
+
+            // iterate simulations
+            for (uint32_t simulationId = 0; simulationId < m; ++simulationId) {
+                // std::cout << "nodeId:\t" << seedNodeId << "\tsimulationId:\t" << simulationId << std::endl;
+                // enqueue seed node
+
+
+                queue.enqueue(seedNodeId);
+                auto start = std::chrono::high_resolution_clock::now();
+
+                benchmark(
+                    graph,
+                    queue, rng,
+                    threadsCount
+                );
+
+                auto end = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double> duration = end - start;
+
+                std::cout
+                    << (size_t) threadsCount << ","
+                    << (size_t) seedNodeId << ","
+                    << (size_t) simulationId << ","
+                    << duration.count() << std::endl;
+                queue.reset();
+
+                // // accumulate activated nodes
+                // #pragma omp parallel for simd
+                // for (uint32_t nodeId = 0; nodeId < n; ++nodeId) {
+                //     bool activated = queue.isActivated(nodeId);
+                //     iar[seedNodeId * n + nodeId] += static_cast<float>(activated);
+                // }
+                // reset queue for next simulation
+            }
+        }
+    }
+    // experiment finished
+
+    // normalize information access representation
+    // std::cout << "normalizing..." << std::flush;
+    // float factor = 1.0f / m;
+    // #pragma omp parallel for simd
+    // for (uint32_t nodeId = 0; nodeId < n * n; ++nodeId) {
+    //     iar[nodeId] *= factor;
+    // }
+
+    // write the binary data
+    // std::stringstream fileOutName;
+    // fileOutName << "threads_" << static_cast<size_t>(threadsCount) << "_simulations_" << static_cast<size_t>(m) << ".bin";
+
+    // std::ofstream fileOut(fileOutName.str(), std::ios::binary);
+    // fileOut.write(reinterpret_cast<const char*>(iar.data()), iar.size() * sizeof(float));
+    // fileOut.close();
+    /*
     // count nodes
-    uint16_t n = 1'718;
+    uint32_t n = 1'718;
     // network adjacency matrix
     std::vector<uint8_t> adjacencyMatrix(n * n);
-    // information access representation
-    std::vector<float> iar(n * n);
     // probabilty to infect a node
     float alpha = 0.01f;
 
     // mode
     const std::string mode = argv[1];
     // const std::string mode = "ira";
-    // amount of simulations
-    const uint16_t m = std::stoi(argv[2]);
-    // const uint16_t m = 10;
-    // amount of threads
-    const uint8_t threadsCount = std::stoi(argv[3]);
-    // const uint8_t threadsCount = 2;
 
 
     // Read the binary data
@@ -103,20 +199,16 @@ int main(int argc, char* argv[]) {
     file.read(reinterpret_cast<char*>(adjacencyMatrix.data()), adjacencyMatrix.size() * sizeof(uint8_t));
     file.close();
 
-    SafeQueue<uint16_t> queue(n, threadsCount);
 
-    // Create a random number generator
-    std::random_device rd;
-    std::default_random_engine rng(rd());
 
     if (mode == "sampling") {
         // const uint8_t sampleSize = std::stoi(argv[4]);
         const uint8_t sampleSize = std::stoi(argv[4]);
         // iterate simulations
-        for (uint16_t simulationId = 0; simulationId < m; ++simulationId) {
+        for (uint32_t simulationId = 0; simulationId < m; ++simulationId) {
             // std::cout << "nodeId:\t" << seedNodeId << "\tsimulationId:\t" << simulationId << std::endl;
             // enqueue seed node
-            std::vector<uint16_t> seeds(n);
+            std::vector<uint32_t> seeds(n);
             std::iota(seeds.begin(), seeds.end(), 0);
             std::shuffle(seeds.begin(), seeds.end(), rng);
 
@@ -148,61 +240,7 @@ int main(int argc, char* argv[]) {
         }
 
     } else {
-        // iterate nodes
-        for (uint16_t seedNodeId = 0; seedNodeId < n; ++seedNodeId) {
-            // std::cout << "nodeId:\t" << seedNodeId << std::endl;
-
-            // iterate simulations
-            for (uint16_t simulationId = 0; simulationId < m; ++simulationId) {
-                // std::cout << "nodeId:\t" << seedNodeId << "\tsimulationId:\t" << simulationId << std::endl;
-                // enqueue seed node
-                queue.enqueue(seedNodeId);
-
-                auto start = std::chrono::high_resolution_clock::now();
-
-                benchmark(
-                    adjacencyMatrix,
-                    n, alpha, queue, rng,
-                    threadsCount
-                );
-
-                auto end = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double> duration = end - start;
-
-                std::cout
-                    << (size_t) threadsCount << ","
-                    << (size_t) seedNodeId << ","
-                    << (size_t) simulationId << ","
-                    << duration.count() << std::endl;
-
-                // accumulate activated nodes
-                #pragma omp parallel for simd
-                for (uint16_t nodeId = 0; nodeId < n; ++nodeId) {
-                    bool activated = queue.isActivated(nodeId);
-                    iar[seedNodeId * n + nodeId] += static_cast<float>(activated);
-                }
-                // reset queue for next simulation
-                queue.reset();
-            }
-        }
-        // experiment finished
-
-        // normalize information access representation
-        // std::cout << "normalizing..." << std::flush;
-        float factor = 1.0f / m;
-        #pragma omp parallel for simd
-        for (uint16_t nodeId = 0; nodeId < n * n; ++nodeId) {
-            iar[nodeId] *= factor;
-        }
-
-        // write the binary data
-        std::stringstream fileOutName;
-        fileOutName << "threads_" << static_cast<size_t>(threadsCount) << "_simulations_" << static_cast<size_t>(m) << ".bin";
-
-        std::ofstream fileOut(fileOutName.str(), std::ios::binary);
-        fileOut.write(reinterpret_cast<const char*>(iar.data()), iar.size() * sizeof(float));
-        fileOut.close();
     }
-
+    */
     return 0;
 }

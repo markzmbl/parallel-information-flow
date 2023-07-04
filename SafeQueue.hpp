@@ -17,7 +17,7 @@ private:
     mutable std::mutex queueMutex;
     std::vector<std::mutex> activationMutexes;
     std::condition_variable c;
-    uint16_t size;
+    T size;
     std::vector<bool> activations;
     std::atomic<uint8_t> threadsWaiting;
     uint8_t threadsCount;
@@ -130,7 +130,8 @@ public:
 
     void reset()
     {
-        assert(q.empty());
+        std::queue<T> empty;
+        std::swap(q, empty);
         std::fill(activations.begin(), activations.end(), false);
         threadsWaiting = 0;
         finished = false;
